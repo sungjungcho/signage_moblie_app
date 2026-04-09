@@ -7,6 +7,7 @@ import '../models/user_session.dart';
 import 'detail_screen.dart';
 import 'login_screen.dart';
 import 'message_compose_tab.dart';
+import 'notice_manage_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -206,13 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   RefreshIndicator(
                     onRefresh: _refresh,
-                    child: _ItemListTab(
-                      heroBadge: '공지사항',
-                      heroTitle: '일반 공지를 모아서 확인하는 공간입니다.',
-                      heroDescription:
-                          '공지사항 탭은 기존 앱 UI와 데이터를 유지하고 있습니다. 이후 실제 서버 연결이 가능해지면 같은 구조를 그대로 확장할 수 있습니다.',
-                      items: data.notices,
-                    ),
+                    child: NoticeManageTab(initialItems: data.notices),
                   ),
                 ],
               );
