@@ -7,6 +7,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../models/user_session.dart';
+import '../services/api_client.dart';
+import '../services/live_message_api_service.dart';
 
 class MessageComposeTab extends StatefulWidget {
   const MessageComposeTab({
@@ -40,6 +42,7 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
   final _secondController = TextEditingController(text: '30');
   final _selectedDevices = <String>{};
   final _recentMessages = <_SentMessageRecord>[];
+  final _deviceIdByLabel = <String, String>{};
 
   late List<String> _devices;
   WebViewController? _controller;
@@ -60,8 +63,9 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
 
   bool get _canLoadLiveDevices =>
       widget.loadLiveDevices &&
-      _supportsWebView &&
-      (widget.serverBaseUrl?.isNotEmpty ?? false);
+      (widget.serverBaseUrl?.isNotEmpty ?? false) &&
+      (widget.session?.userId.trim().isNotEmpty ?? false) &&
+      (widget.session?.loginPassword?.isNotEmpty ?? false);
 
   @override
   void initState() {
@@ -70,6 +74,7 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
     _messageController.addListener(_onMessageChanged);
 
     if (_canLoadLiveDevices) {
+      _devices = const [];
       _initLiveDeviceLoader();
     } else {
       _deviceLoadMessage = '등록된 디바이스 목록을 확인할 수 있습니다.';
@@ -96,111 +101,90 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
     _triedLiveDeviceLoad = true;
     _isLoadingDevices = true;
     _deviceLoadMessage = '로그인한 계정의 디바이스 목록을 불러오는 중입니다.';
-
-    final controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) async => _loadDevicesFromServer(),
-          onWebResourceError: (error) {
-            if (!mounted || error.isForMainFrame == false) {
-              return;
-            }
-
-            setState(() {
-              _isLoadingDevices = false;
-              _deviceLoadMessage = '디바이스 목록을 불러오지 못했습니다.';
-            });
-          },
-        ),
-      )
-      ..loadHtmlString('<html><body style="background:#fff;"></body></html>');
-
-    if (controller.platform is AndroidWebViewController) {
-      AndroidWebViewController.enableDebugging(kDebugMode);
-      (controller.platform as AndroidWebViewController)
-          .setMediaPlaybackRequiresUserGesture(false);
-    }
-
-    _controller = controller;
-    unawaited(controller.loadRequest(Uri.parse('${widget.serverBaseUrl!}/admin')));
+    unawaited(_loadDevicesFromServer());
   }
 
   Future<void> _loadDevicesFromServer() async {
-    final controller = _controller;
-    if (controller == null || !mounted || _isSyncingLiveDevices) {
+    if (!mounted || _isSyncingLiveDevices) {
       return;
     }
 
     _isSyncingLiveDevices = true;
-    final isAuthenticated = await _ensureAuthenticated(controller);
-    if (!mounted) {
-      _isSyncingLiveDevices = false;
-      return;
-    }
-
-    if (!isAuthenticated) {
-      setState(() {
-        _isLoadingDevices = false;
-        _deviceLoadMessage = '로그인 세션을 확인하지 못해 사용자 디바이스 목록을 불러오지 못했습니다.';
-      });
-      _isSyncingLiveDevices = false;
-      return;
-    }
-
-    final pageState = await _detectPageState(controller);
-    if (!mounted) {
-      _isSyncingLiveDevices = false;
-      return;
-    }
-
-    if (pageState == 'login') {
-      setState(() {
-        _isLoadingDevices = false;
-        _deviceLoadMessage = '로그인 세션을 찾지 못해 디바이스 목록을 불러오지 못했습니다.';
-      });
-      _isSyncingLiveDevices = false;
-      return;
-    }
-
-      await _clickManageStartIfPresent(controller);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      await _openEmergencyAlertIfPresent(controller);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-
-      final tabs = await _readTabsFromPage(controller);
-      final emergencyIndex = tabs.indexWhere(_isEmergencyTab);
-      if (emergencyIndex >= 0) {
-        await _switchToTab(controller, tabs[emergencyIndex]);
-        await Future<void>.delayed(const Duration(milliseconds: 450));
+    try {
+      final username = widget.session?.userId.trim() ?? '';
+      final password = widget.session?.loginPassword ?? '';
+      if (username.isEmpty || password.isEmpty || widget.serverBaseUrl == null) {
+        throw const ApiException('로그인 정보가 없어 디바이스 목록을 불러올 수 없습니다.');
       }
 
-      final liveDevices = await _readDeviceOptions(controller);
-    if (!mounted) {
-      _isSyncingLiveDevices = false;
-      return;
-    }
+      final apiService = LiveMessageApiService(baseUrl: widget.serverBaseUrl!);
+      final authToken = await apiService.signIn(
+        username: username,
+        password: password,
+      );
+      final liveDevices = await apiService.fetchDevices(authToken: authToken);
 
-    if (liveDevices.isEmpty) {
-      setState(() {
-        _isLoadingDevices = false;
-        _deviceLoadMessage = '등록된 디바이스 목록을 찾지 못했습니다.';
-      });
-      _isSyncingLiveDevices = false;
-      return;
-    }
+      if (!mounted) {
+        return;
+      }
+
+      if (liveDevices.isEmpty) {
+        setState(() {
+          _deviceIdByLabel.clear();
+          _devices = const ['전체 선택'];
+          _selectedDevices.clear();
+          _isLoadingDevices = false;
+          _deviceLoadMessage = '등록된 디바이스 목록을 찾지 못했습니다.';
+        });
+        return;
+      }
 
       setState(() {
-        _devices = liveDevices.map((item) => item.label).toList(growable: false);
+        _deviceIdByLabel
+          ..clear()
+          ..addEntries(
+            liveDevices.map((device) => MapEntry(device.name, device.id)),
+          );
+        _devices = [
+          '전체 선택',
+          ...liveDevices.map((device) => device.name),
+        ];
         _selectedDevices.clear();
         _isLoadingDevices = false;
-        _deviceLoadMessage = '로그인한 사용자 기준 디바이스 ${_devices.length}대를 불러왔습니다.';
+        _deviceLoadMessage =
+            '로그인한 사용자 기준 디바이스 ${liveDevices.length}대를 불러왔습니다.';
       });
-    _isSyncingLiveDevices = false;
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _deviceIdByLabel.clear();
+        _devices = const [];
+        _selectedDevices.clear();
+        _isLoadingDevices = false;
+        _deviceLoadMessage = error.message;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _deviceIdByLabel.clear();
+        _devices = const [];
+        _selectedDevices.clear();
+        _isLoadingDevices = false;
+        _deviceLoadMessage = '디바이스 목록을 불러오지 못했습니다.';
+      });
+    } finally {
+      _isSyncingLiveDevices = false;
+    }
   }
 
   Future<void> _reloadLiveDevices() async {
-    if (!_canLoadLiveDevices || _controller == null) {
+    if (!_canLoadLiveDevices) {
       return;
     }
 
@@ -209,7 +193,7 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
       _deviceLoadMessage = '디바이스 목록을 다시 불러오는 중입니다.';
     });
 
-    await _controller!.loadRequest(Uri.parse('${widget.serverBaseUrl!}/admin'));
+    await _loadDevicesFromServer();
   }
 
   Future<String> _detectPageState(WebViewController controller) async {
@@ -777,6 +761,20 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
         (normalized.contains('?뚮┝') || normalized.contains('怨듭?'));
   }
 
+  Future<void> _prepareEmergencyPage(WebViewController controller) async {
+    await _clickManageStartIfPresent(controller);
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await _openEmergencyAlertIfPresent(controller);
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+
+    final tabs = await _readTabsFromPage(controller);
+    final emergencyIndex = tabs.indexWhere(_isEmergencyTab);
+    if (emergencyIndex >= 0) {
+      await _switchToTab(controller, tabs[emergencyIndex]);
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+    }
+  }
+
   bool _isSelectAllDevice(String label) {
     final normalized = label.replaceAll(' ', '');
     return normalized.contains('전체') && normalized.contains('선택');
@@ -786,6 +784,62 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
     return _devices
         .where((device) => !_isSelectAllDevice(device))
         .toList(growable: false);
+  }
+
+  Future<String?> _sendLiveMessageToServer({
+    required String message,
+    required int minutes,
+    required int seconds,
+    required List<String> devices,
+  }) async {
+    try {
+      final username = widget.session?.userId.trim() ?? '';
+      final password = widget.session?.loginPassword ?? '';
+      if (username.isEmpty || password.isEmpty || widget.serverBaseUrl == null) {
+        return '로그인 정보가 없어 운영 메세지를 전송할 수 없습니다.';
+      }
+
+      final targetDeviceIds = devices
+          .map((device) => _deviceIdByLabel[device])
+          .whereType<String>()
+          .toList(growable: false);
+      if (targetDeviceIds.length != devices.length) {
+        return '선택한 디바이스 정보를 다시 불러와주세요.';
+      }
+
+      final apiService = LiveMessageApiService(baseUrl: widget.serverBaseUrl!);
+      final authToken = await apiService.signIn(
+        username: username,
+        password: password,
+      );
+      final sentAlert = await apiService.sendAlert(
+        authToken: authToken,
+        message: message,
+        targetDeviceIds: targetDeviceIds,
+        duration: ((minutes * 60) + seconds) * 1000,
+      );
+
+      final firstDeviceId = targetDeviceIds.first;
+      final storedAlerts = await apiService.fetchAlertsForDevice(
+        authToken: authToken,
+        deviceId: firstDeviceId,
+      );
+      final isStored = storedAlerts.any(
+        (alert) =>
+            alert.id == sentAlert.id ||
+            (alert.message == sentAlert.message &&
+                alert.targetDeviceIds.contains(firstDeviceId)),
+      );
+      if (!isStored) {
+        return '전송 응답은 받았지만 서버 저장을 확인하지 못했습니다.';
+      }
+
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    } catch (_) {
+      return '운영 서버 전송 중 오류가 발생했습니다.';
+    }
   }
 
   void _incrementTime(TextEditingController controller, int delta, int maxValue) {
@@ -881,6 +935,23 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
       return;
     }
 
+    final sendError = await _sendLiveMessageToServer(
+      message: _messageController.text.trim(),
+      minutes: minutes,
+      seconds: seconds,
+      devices: _selectedDevices.toList(growable: false),
+    );
+    if (!mounted) {
+      return;
+    }
+
+    if (sendError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('운영 메세지 전송 실패: $sendError')),
+      );
+      return;
+    }
+
     setState(() {
       _recentMessages.insert(
         0,
@@ -894,7 +965,7 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('메세지 전송 요청이 준비되었습니다.')),
+      const SnackBar(content: Text('운영 메세지가 전송되었습니다.')),
     );
   }
 
