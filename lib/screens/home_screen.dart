@@ -10,10 +10,7 @@ import 'message_compose_tab.dart';
 import 'notice_manage_tab.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({
-    super.key,
-    required this.session,
-  });
+  const HomeScreen({super.key, required this.session});
 
   final UserSession session;
 
@@ -37,10 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
       contentService.fetchNotices(),
     ]);
 
-    return _HomeScreenData(
-      messages: results[0],
-      notices: results[1],
-    );
+    return _HomeScreenData(messages: results[0], notices: results[1]);
   }
 
   Future<void> _refresh() async {
@@ -53,9 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _logout() {
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute<void>(
-        builder: (_) => const LoginScreen(),
-      ),
+      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
       (route) => false,
     );
   }
@@ -136,10 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
                 ),
-                tabs: [
-                  Tab(text: '메세지'),
-                  Tab(text: '공지사항'),
-                ],
+                tabs: [Tab(text: '메세지'), Tab(text: '공지사항')],
               ),
             ),
           ),
@@ -149,10 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFF25C1AE),
-                Color(0xFFEFF9F7),
-              ],
+              colors: [Color(0xFF25C1AE), Color(0xFFEFF9F7)],
               stops: [0.0, 0.38],
             ),
           ),
@@ -207,7 +193,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   RefreshIndicator(
                     onRefresh: _refresh,
-                    child: NoticeManageTab(initialItems: data.notices),
+                    child: NoticeManageTab(
+                      initialItems: data.notices,
+                      session: widget.session,
+                      loadLiveDevices: useLiveMessageDevices,
+                      serverBaseUrl: scope.environment.serverBaseUrl,
+                    ),
                   ),
                 ],
               );
@@ -275,10 +266,7 @@ class _HeroPanel extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF27364A),
-            Color(0xFF31506D),
-          ],
+          colors: [Color(0xFF27364A), Color(0xFF31506D)],
         ),
         boxShadow: const [
           BoxShadow(
@@ -329,9 +317,7 @@ class _HeroPanel extends StatelessWidget {
 }
 
 class _ItemCard extends StatelessWidget {
-  const _ItemCard({
-    required this.item,
-  });
+  const _ItemCard({required this.item});
 
   final SignageItem item;
 
@@ -346,9 +332,7 @@ class _ItemCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         onTap: () {
           Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => DetailScreen(item: item),
-            ),
+            MaterialPageRoute<void>(builder: (_) => DetailScreen(item: item)),
           );
         },
         child: Ink(
@@ -374,10 +358,7 @@ class _ItemCard extends StatelessWidget {
                   color: accentColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(
-                  Icons.campaign_outlined,
-                  color: accentColor,
-                ),
+                child: Icon(Icons.campaign_outlined, color: accentColor),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -453,10 +434,7 @@ class _ItemCard extends StatelessWidget {
 }
 
 class _HomeScreenData {
-  const _HomeScreenData({
-    required this.messages,
-    required this.notices,
-  });
+  const _HomeScreenData({required this.messages, required this.notices});
 
   final List<SignageItem> messages;
   final List<SignageItem> notices;
