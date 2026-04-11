@@ -27,6 +27,58 @@ class WebLoginBridgeScreen extends StatefulWidget {
 }
 
 class _WebLoginBridgeScreenState extends State<WebLoginBridgeScreen> {
+  static const _loginStateScript = '''
+    (() => {
+      const text = (document.body?.innerText || '').toLowerCase();
+      const normalizedText = text.replace(/\\s+/g, '');
+      const findByPatterns = (selector, patterns) => {
+        return Array.from(document.querySelectorAll(selector)).some((element) => {
+          const values = [
+            element.getAttribute('type'),
+            element.getAttribute('name'),
+            element.getAttribute('id'),
+            element.getAttribute('placeholder'),
+            element.getAttribute('autocomplete'),
+            element.getAttribute('aria-label'),
+            element.getAttribute('title'),
+            element.textContent,
+          ]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase();
+          return patterns.some((pattern) => values.includes(pattern));
+        });
+      };
+
+      const hasPasswordField =
+        document.querySelector('input[type="password"]') ||
+        findByPatterns('input', ['password', 'passwd', 'pass', 'pw', '\\ube44\\ubc00\\ubc88\\ud638']);
+      const hasUsernameField = findByPatterns('input', [
+        'username',
+        'userid',
+        'user_id',
+        'user-id',
+        'account',
+        'login',
+        'email',
+        '\\uc544\\uc774\\ub514',
+        '\\uacc4\\uc815',
+      ]);
+
+      if (
+        hasPasswordField ||
+        hasUsernameField ||
+        normalizedText.includes('\\ub85c\\uadf8\\uc778') ||
+        normalizedText.includes('signin') ||
+        normalizedText.includes('login')
+      ) {
+        return 'login';
+      }
+
+      return 'admin';
+    })();
+  ''';
+
   WebViewController? _controller;
   WebViewCookieManager? _cookieManager;
   bool _isSubmitting = false;
@@ -123,25 +175,23 @@ class _WebLoginBridgeScreenState extends State<WebLoginBridgeScreen> {
         _isSubmitting = true;
       });
 
-      await Future<void>.delayed(const Duration(milliseconds: 900));
-      final didSubmit = await _submitLoginForm();
+      final didSubmit = await _submitLoginFormWithRetry();
       if (!mounted || _isCompleting) {
         return;
       }
 
       if (!didSubmit) {
-        _completeWithError('운영 서버 로그인 폼을 찾지 못했습니다.');
+        _completeWithError('운영 서버 로그인 폼을 찾을 수 없습니다.');
         return;
       }
 
-      await Future<void>.delayed(const Duration(milliseconds: 2200));
-      final nextPageState = await _detectPageState('');
+      final loginStateAfterSubmit = await _waitForPostLoginState();
       if (!mounted || _isCompleting) {
         return;
       }
 
-      if (nextPageState == 'login') {
-        _completeWithError('로그인에 실패했습니다. 계정을 다시 확인해 주세요.');
+      if (loginStateAfterSubmit == 'login') {
+        _completeWithError('로그인에 실패했습니다. 계정 정보를 다시 확인해주세요.');
         return;
       }
 
@@ -163,32 +213,54 @@ class _WebLoginBridgeScreenState extends State<WebLoginBridgeScreen> {
       return 'admin';
     }
 
-    const script = '''
-      (() => {
-        const text = (document.body?.innerText || '').toLowerCase();
-        const hasPasswordField = !!document.querySelector(
-          'input[type="password"], input[autocomplete="current-password"], input[aria-label*="비밀번호"], input[placeholder*="비밀번호"]'
-        );
-        if (hasPasswordField) {
-          return 'login';
-        }
-        if (
-          text.includes('login') ||
-          text.includes('signin') ||
-          text.includes('로그인')
-        ) {
-          return 'login';
-        }
-        return 'admin';
-      })();
-    ''';
-
     try {
-      final result = await _controller!.runJavaScriptReturningResult(script);
+      final result = await _controller!.runJavaScriptReturningResult(
+        _loginStateScript,
+      );
       return _normalizeJavaScriptResult(result) ?? 'admin';
     } catch (_) {
       return 'admin';
     }
+  }
+
+  Future<bool> _submitLoginFormWithRetry() async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      if (!mounted || _isCompleting) {
+        return false;
+      }
+
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+      } else {
+        await Future<void>.delayed(const Duration(milliseconds: 1200));
+      }
+
+      final didSubmit = await _submitLoginForm();
+      if (didSubmit) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  Future<String> _waitForPostLoginState() async {
+    for (var attempt = 0; attempt < 8; attempt++) {
+      if (!mounted || _isCompleting) {
+        return 'login';
+      }
+
+      await Future<void>.delayed(
+        Duration(milliseconds: attempt == 0 ? 1800 : 900),
+      );
+
+      final state = await _detectPageState('');
+      if (state != 'login') {
+        return state;
+      }
+    }
+
+    return 'login';
   }
 
   Future<bool> _submitLoginForm() async {
@@ -200,18 +272,68 @@ class _WebLoginBridgeScreenState extends State<WebLoginBridgeScreen> {
         try {
           const usernameValue = $encodedUserId;
           const passwordValue = $encodedPassword;
-          const visible = (element) => {
-            if (!element) return false;
-            const style = window.getComputedStyle(element);
-            const rect = element.getBoundingClientRect();
-            return (
-              style.display !== 'none' &&
-              style.visibility !== 'hidden' &&
-              style.opacity !== '0' &&
-              rect.width > 0 &&
-              rect.height > 0
-            );
+          const patterns = {
+            username: [
+              'username',
+              'userid',
+              'user_id',
+              'user-id',
+              'account',
+              'login',
+              'email',
+              '\\uc544\\uc774\\ub514',
+              '\\uacc4\\uc815',
+              '\\uc774\\uba54\\uc77c'
+            ],
+            password: [
+              'password',
+              'passwd',
+              'pass',
+              'pw',
+              '\\ube44\\ubc00\\ubc88\\ud638'
+            ],
+            submit: [
+              '\\ub85c\\uadf8\\uc778',
+              'login',
+              'sign in',
+              'signin',
+              'submit',
+              '\\ud655\\uc778'
+            ],
           };
+
+          const visible = (element) => {
+            if (!element || element.disabled) return false;
+            const style = window.getComputedStyle(element);
+            if (style.display === 'none' || style.visibility === 'hidden') {
+              return false;
+            }
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 || rect.height > 0;
+          };
+
+          const textOf = (element) => {
+            return [
+              element.getAttribute('type'),
+              element.getAttribute('name'),
+              element.getAttribute('id'),
+              element.getAttribute('placeholder'),
+              element.getAttribute('autocomplete'),
+              element.getAttribute('aria-label'),
+              element.getAttribute('title'),
+              element.textContent,
+              element.getAttribute('value'),
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase();
+          };
+
+          const matchesAny = (element, values) => {
+            const text = textOf(element);
+            return values.some((value) => text.includes(value));
+          };
+
           const dispatchInput = (element, value) => {
             const prototype = Object.getPrototypeOf(element);
             const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
@@ -223,30 +345,43 @@ class _WebLoginBridgeScreenState extends State<WebLoginBridgeScreen> {
             }
             element.dispatchEvent(new Event('input', { bubbles: true }));
             element.dispatchEvent(new Event('change', { bubbles: true }));
-            element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+            element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            element.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
             element.blur();
           };
 
-          const passwordField = Array.from(
-            document.querySelectorAll(
-              'input[type="password"], input[autocomplete="current-password"], input[aria-label*="비밀번호"], input[placeholder*="비밀번호"]'
-            )
-          ).find(visible);
+          const inputCandidates = Array.from(document.querySelectorAll('input'));
+          const passwordField = inputCandidates.find((element) => {
+            return visible(element) && (
+              (element.getAttribute('type') || '').toLowerCase() === 'password' ||
+              matchesAny(element, patterns.password)
+            );
+          });
           if (!passwordField) {
             return 'missing-password';
           }
 
           const form =
             passwordField.closest('form') ||
-            passwordField.parentElement?.closest('form') ||
-            document.querySelector('form');
-          const usernameRoot = form || document;
-          const usernameCandidates = Array.from(
-            usernameRoot.querySelectorAll(
-              'input[type="text"], input[type="email"], input[autocomplete="username"], input[placeholder*="아이디"], input[aria-label*="아이디"], input:not([type])'
-            )
-          ).filter((element) => visible(element) && element !== passwordField);
-          const usernameField = usernameCandidates[0];
+            document.querySelector('form') ||
+            passwordField.closest('[role="form"]');
+          const searchRoot = form || document;
+          const usernameField = Array.from(searchRoot.querySelectorAll('input'))
+            .find((element) => {
+              if (!visible(element) || element === passwordField) {
+                return false;
+              }
+
+              const type = (element.getAttribute('type') || 'text').toLowerCase();
+              if (['hidden', 'checkbox', 'radio', 'submit', 'button'].includes(type)) {
+                return false;
+              }
+
+              return (
+                ['text', 'email', 'tel', 'search', 'number', ''].includes(type) ||
+                matchesAny(element, patterns.username)
+              );
+            });
 
           if (!usernameField) {
             return 'missing-username';
@@ -255,25 +390,14 @@ class _WebLoginBridgeScreenState extends State<WebLoginBridgeScreen> {
           dispatchInput(usernameField, usernameValue);
           dispatchInput(passwordField, passwordValue);
 
-          const submitTarget = Array.from(
+          const clickableCandidates = Array.from(
             (form || document).querySelectorAll(
               'button, input[type="submit"], input[type="button"], a, [role="button"]'
             )
-          ).find((element) => {
-            if (!visible(element)) return false;
-            const text = (
-              element.textContent ||
-              element.getAttribute('value') ||
-              element.getAttribute('aria-label') ||
-              element.getAttribute('title') ||
-              ''
-            ).replace(/\\s+/g, '').toLowerCase();
-            return (
-              text.includes('\\ub85c\\uadf8\\uc778') ||
-              text.includes('login') ||
-              text.includes('signin') ||
-              text.includes('submit')
-            );
+          );
+
+          const submitTarget = clickableCandidates.find((element) => {
+            return visible(element) && matchesAny(element, patterns.submit);
           });
 
           if (submitTarget && typeof submitTarget.click === 'function') {
@@ -282,11 +406,28 @@ class _WebLoginBridgeScreenState extends State<WebLoginBridgeScreen> {
           }
 
           if (form) {
-            form.requestSubmit ? form.requestSubmit() : form.submit();
+            if (typeof form.requestSubmit === 'function') {
+              form.requestSubmit();
+            } else if (typeof form.submit === 'function') {
+              form.submit();
+            } else {
+              passwordField.dispatchEvent(
+                new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
+              );
+              passwordField.dispatchEvent(
+                new KeyboardEvent('keyup', { key: 'Enter', bubbles: true })
+              );
+            }
             return 'submitted';
           }
 
-          return 'error';
+          passwordField.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
+          );
+          passwordField.dispatchEvent(
+            new KeyboardEvent('keyup', { key: 'Enter', bubbles: true })
+          );
+          return 'submitted';
         } catch (error) {
           return 'error';
         }
@@ -405,8 +546,7 @@ class WebLoginResult {
     this.errorMessage,
   });
 
-  const WebLoginResult.success(UserSession session)
-      : this._(session: session);
+  const WebLoginResult.success(UserSession session) : this._(session: session);
 
   const WebLoginResult.failure(String errorMessage)
       : this._(errorMessage: errorMessage);
