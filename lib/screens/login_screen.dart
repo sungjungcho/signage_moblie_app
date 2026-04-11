@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
 import '../app_scope.dart';
 import '../models/user_session.dart';
 import '../services/auth_service.dart';
 import '../services/mock_auth_service.dart';
+import '../services/session_storage_service.dart';
 import 'home_screen.dart';
 import 'password_reset_bridge_screen.dart';
 import 'web_login_bridge_screen.dart';
@@ -74,12 +76,13 @@ class _LoginScreenState extends State<LoginScreen> {
       } else {
         final result = await Navigator.of(context).push<WebLoginResult>(
           MaterialPageRoute<WebLoginResult>(
-            builder: (_) => WebLoginBridgeScreen(
-              serverBaseUrl: scope.environment.serverBaseUrl,
-              userId: _idController.text,
-              password: _passwordController.text,
-              keepSignedIn: _rememberLogin,
-            ),
+            builder:
+                (_) => WebLoginBridgeScreen(
+                  serverBaseUrl: scope.environment.serverBaseUrl,
+                  userId: _idController.text,
+                  password: _passwordController.text,
+                  keepSignedIn: _rememberLogin,
+                ),
           ),
         );
 
@@ -88,9 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
         }
 
         if (result?.session == null) {
-          throw AuthException(
-            result?.errorMessage ?? '운영 서버 로그인 확인에 실패했습니다.',
-          );
+          throw AuthException(result?.errorMessage ?? '운영 서버 로그인 확인에 실패했습니다.');
         }
 
         session = result!.session!;
@@ -104,6 +105,20 @@ class _LoginScreenState extends State<LoginScreen> {
         loginPassword: _passwordController.text,
       );
 
+      try {
+        if (sessionWithCredentials.keepSignedIn) {
+          await SessionStorageService.saveSession(sessionWithCredentials);
+        } else {
+          await SessionStorageService.clearSession();
+        }
+      } catch (_) {
+        // Keep login usable even if local session persistence fails.
+      }
+
+      if (!mounted) {
+        return;
+      }
+
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
           builder: (_) => HomeScreen(session: sessionWithCredentials),
@@ -114,9 +129,9 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     } finally {
       if (mounted) {
         setState(() {
@@ -136,11 +151,7 @@ class _LoginScreenState extends State<LoginScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF27364A),
-              Color(0xFF25C1AE),
-              Color(0xFFF5FBFA),
-            ],
+            colors: [Color(0xFF27364A), Color(0xFF25C1AE), Color(0xFFF5FBFA)],
             stops: [0.0, 0.34, 1.0],
           ),
         ),
@@ -199,13 +210,12 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ],
                           ),
-                          child: Center(
-                            child: Text(
-                              'BLOSSOM',
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                color: const Color(0xFF2C6FB7),
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.8,
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: ClipOval(
+                              child: Image.asset(
+                                'assets/images/blossom_logo_extracted_clean.png',
+                                fit: BoxFit.contain,
                               ),
                             ),
                           ),
@@ -240,16 +250,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               children: [
                                 Text(
                                   '로그인',
-                                  style: theme.textTheme.headlineSmall?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  '로그인 후 메세지와 공지사항 화면으로 이동합니다.',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: const Color(0xFF617386),
-                                  ),
+                                  style: theme.textTheme.headlineSmall
+                                      ?.copyWith(fontWeight: FontWeight.w800),
                                 ),
                                 const SizedBox(height: 24),
                                 TextFormField(
@@ -310,9 +312,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                         });
                                       },
                                     ),
-                                    const Expanded(
-                                      child: Text('로그인 상태 유지'),
-                                    ),
+                                    const Expanded(child: Text('자동 로그인')),
                                     TextButton(
                                       onPressed: _openPasswordReset,
                                       child: const Text('비밀번호 찾기'),
@@ -329,16 +329,17 @@ class _LoginScreenState extends State<LoginScreen> {
                                         borderRadius: BorderRadius.circular(18),
                                       ),
                                     ),
-                                    child: _isSubmitting
-                                        ? const SizedBox(
-                                            width: 22,
-                                            height: 22,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2.2,
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : const Text('로그인'),
+                                    child:
+                                        _isSubmitting
+                                            ? const SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2.2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                            : const Text('로그인'),
                                   ),
                                 ),
                               ],
@@ -359,10 +360,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 class _AccentBubble extends StatelessWidget {
-  const _AccentBubble({
-    required this.size,
-    required this.color,
-  });
+  const _AccentBubble({required this.size, required this.color});
 
   final double size;
   final Color color;
@@ -372,10 +370,7 @@ class _AccentBubble extends StatelessWidget {
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color,
-      ),
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
     );
   }
 }

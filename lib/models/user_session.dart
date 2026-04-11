@@ -11,6 +11,17 @@ class UserSession {
   final bool keepSignedIn;
   final String? loginPassword;
 
+  factory UserSession.fromJson(Map<String, dynamic> json) {
+    final loginPassword = (json['loginPassword'] ?? '').toString();
+
+    return UserSession(
+      userId: (json['userId'] ?? '').toString(),
+      displayName: (json['displayName'] ?? '').toString(),
+      keepSignedIn: json['keepSignedIn'] == true,
+      loginPassword: loginPassword.isEmpty ? null : loginPassword,
+    );
+  }
+
   UserSession copyWith({
     String? userId,
     String? displayName,
@@ -23,5 +34,14 @@ class UserSession {
       keepSignedIn: keepSignedIn ?? this.keepSignedIn,
       loginPassword: loginPassword ?? this.loginPassword,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'userId': userId,
+      'displayName': displayName,
+      'keepSignedIn': keepSignedIn,
+      'loginPassword': loginPassword,
+    };
   }
 }

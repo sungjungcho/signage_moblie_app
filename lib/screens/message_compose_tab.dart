@@ -981,14 +981,6 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(20),
       children: [
-        _HeaderCard(
-          isLoadingDevices: _isLoadingDevices,
-          canReload: _canLoadLiveDevices,
-          message: _deviceLoadMessage ??
-              '전송할 내용과 노출 시간을 입력하고 디바이스를 선택해주세요.',
-          onReload: _reloadLiveDevices,
-        ),
-        const SizedBox(height: 18),
         _FormCard(
           formKey: _formKey,
           theme: theme,
@@ -1025,88 +1017,6 @@ class _MessageComposeTabState extends State<MessageComposeTab> {
             ),
           ),
       ],
-    );
-  }
-}
-
-class _HeaderCard extends StatelessWidget {
-  const _HeaderCard({
-    required this.isLoadingDevices,
-    required this.canReload,
-    required this.message,
-    required this.onReload,
-  });
-
-  final bool isLoadingDevices;
-  final bool canReload;
-  final String message;
-  final Future<void> Function() onReload;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF27364A),
-            Color(0xFF31506D),
-          ],
-        ),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1F1E3448),
-            blurRadius: 24,
-            offset: Offset(0, 16),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '메세지 전송 화면',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            message,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.88),
-              height: 1.5,
-            ),
-          ),
-          if (canReload) ...[
-            const SizedBox(height: 18),
-            if (isLoadingDevices)
-              const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.2,
-                  color: Colors.white,
-                ),
-              )
-            else
-              FilledButton.tonal(
-                onPressed: onReload,
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white.withValues(alpha: 0.16),
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('디바이스 다시 불러오기'),
-              ),
-          ],
-        ],
-      ),
     );
   }
 }

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
@@ -20,6 +20,74 @@ String _buildNoticePreviewTitle(String content) {
   if (normalized.isEmpty) return '공지사항';
   if (normalized.length <= 18) return normalized;
   return '${normalized.substring(0, 18)}...';
+}
+
+const List<String> _noticeColorOptions = <String>[
+  '#000000',
+  '#0F172A',
+  '#111827',
+  '#1F2937',
+  '#FFFFFF',
+  '#E2E8F0',
+  '#FDE68A',
+  '#FECDD3',
+  '#CCFBF1',
+  '#EDE9FE',
+];
+
+Color _hexToColor(String hex) {
+  final normalized = hex.replaceAll('#', '').trim().toUpperCase();
+  final sixDigit = normalized.length == 6 ? normalized : '000000';
+  return Color(int.parse('FF$sixDigit', radix: 16));
+}
+
+String _noticeModeSummary(_NoticeDisplaySettings settings) {
+  if (settings.mode == _NoticeDisplayMode.ticker) {
+    return '높이 ${settings.tickerHeight}px · ${settings.tickerDirection.label}';
+  }
+  if (settings.mode == _NoticeDisplayMode.sidePanel) {
+    return '너비 ${settings.sidePanelWidth}px';
+  }
+  return '팝업 미리보기';
+}
+
+String _noticeModeApiValue(_NoticeDisplayMode mode) {
+  switch (mode) {
+    case _NoticeDisplayMode.ticker:
+      return 'ticker';
+    case _NoticeDisplayMode.sidePanel:
+      return 'side_panel';
+    case _NoticeDisplayMode.popupCycle:
+      return 'popup_cycle';
+  }
+}
+
+String _tickerDirectionApiValue(_NoticeTickerDirection direction) {
+  switch (direction) {
+    case _NoticeTickerDirection.staticText:
+      return 'static';
+    case _NoticeTickerDirection.rtl:
+      return 'rtl';
+    case _NoticeTickerDirection.ltr:
+      return 'ltr';
+  }
+}
+
+String _fontFamilyApiValue(_NoticeFontFamilyOption fontFamily) {
+  switch (fontFamily) {
+    case _NoticeFontFamilyOption.arial:
+      return 'Arial, Helvetica, sans-serif';
+    case _NoticeFontFamilyOption.trebuchet:
+      return '"Trebuchet MS", Helvetica, sans-serif';
+    case _NoticeFontFamilyOption.segoe:
+      return '"Segoe UI", Arial, sans-serif';
+    case _NoticeFontFamilyOption.times:
+      return '"Times New Roman", Times, serif';
+    case _NoticeFontFamilyOption.georgia:
+      return 'Georgia, serif';
+    case _NoticeFontFamilyOption.courier:
+      return '"Courier New", Courier, monospace';
+  }
 }
 
 class NoticeManageTab extends StatefulWidget {
@@ -888,9 +956,10 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
         }
 
         final appliedNotice = _ManagedNotice(
-          id: notice.deviceId == targetDeviceId
-              ? notice.id
-              : 'notice-${DateTime.now().microsecondsSinceEpoch}',
+          id:
+              notice.deviceId == targetDeviceId
+                  ? notice.id
+                  : 'notice-${DateTime.now().microsecondsSinceEpoch}',
           title: notice.title,
           content: notice.content,
           category: notice.category,
@@ -934,6 +1003,7 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
     try {
       final token = await _authenticateNoticeApi();
       final apiService = _noticeApi();
+      final displaySettingsPayload = _displaySettings.toApiJson();
 
       String appliedNoticeId = notice.id;
       if (notice.deviceId == targetDeviceId) {
@@ -959,6 +1029,16 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
         );
         appliedNoticeId = created.id;
       }
+
+      await apiService.updateDisplaySettings(
+        authToken: token,
+        deviceId: targetDeviceId,
+        settings: displaySettingsPayload,
+      );
+      await apiService.applyDisplaySettings(
+        authToken: token,
+        deviceId: targetDeviceId,
+      );
 
       await apiService.touchNoticeUsage(
         authToken: token,
@@ -1017,15 +1097,19 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
     final previewNotice = _previewNotice;
     final draftPreviewContent = _contentController.text.trim();
     final useDraftPreview = _showEditor && draftPreviewContent.isNotEmpty;
-    final previewTitle = useDraftPreview
-        ? _buildNoticePreviewTitle(draftPreviewContent)
-        : _buildNoticePreviewTitle(previewNotice?.content ?? '');
-    final previewContent = useDraftPreview
-        ? draftPreviewContent
-        : (previewNotice?.content ??
-            '입력 중인 공지 내용이나 선택한 공지사항이 이 영역에 표시됩니다.');
+    final previewTitle =
+        useDraftPreview
+            ? _buildNoticePreviewTitle(draftPreviewContent)
+            : _buildNoticePreviewTitle(previewNotice?.content ?? '');
+    final previewContent =
+        useDraftPreview
+            ? draftPreviewContent
+            : (previewNotice?.content ??
+                '입력 중인 공지 내용이나 선택한 공지사항이 이 영역에 표시됩니다.');
     final previewFontSize =
-        useDraftPreview ? _draft.fontSize.round() : (previewNotice?.fontSize ?? _draft.fontSize.round());
+        useDraftPreview
+            ? _draft.fontSize.round()
+            : (previewNotice?.fontSize ?? _draft.fontSize.round());
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -1105,47 +1189,36 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                DropdownButtonFormField<_NoticeDisplayMode>(
-                  value: _displaySettings.mode,
-                  decoration: _inputDecoration('표시 모드를 선택해 주세요'),
-                  items: _NoticeDisplayMode.values
-                      .map(
-                        (mode) => DropdownMenuItem<_NoticeDisplayMode>(
-                          value: mode,
-                          child: Text(mode.label),
-                        ),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setState(
-                      () =>
-                          _displaySettings = _displaySettings.copyWith(
-                            mode: value,
-                          ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-                Row(
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
                   children: [
-                    Expanded(
-                      child: _StepperField(
-                        label: '항목 노출 시간(초)',
-                        value: _displaySettings.itemDurationSec,
-                        min: 3,
-                        max: 60,
-                        onChanged:
-                            (value) => setState(
-                              () =>
-                                  _displaySettings = _displaySettings.copyWith(
-                                    itemDurationSec: value,
-                                  ),
-                            ),
+                    SizedBox(
+                      width: 280,
+                      child: DropdownButtonFormField<_NoticeDisplayMode>(
+                        value: _displaySettings.mode,
+                        decoration: _inputDecoration('표시 모드를 선택해 주세요'),
+                        items: _NoticeDisplayMode.values
+                            .map(
+                              (mode) => DropdownMenuItem<_NoticeDisplayMode>(
+                                value: mode,
+                                child: Text(mode.label),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(
+                            () =>
+                                _displaySettings = _displaySettings.copyWith(
+                                  mode: value,
+                                ),
+                          );
+                        },
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
+                    SizedBox(
+                      width: 280,
                       child: _StepperField(
                         label: '최대 노출 개수',
                         value: _displaySettings.maxItems,
@@ -1160,23 +1233,120 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
                             ),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                SwitchListTile.adaptive(
-                  value: _displaySettings.enabled,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('공지 오버레이 사용'),
-                  onChanged:
-                      (value) => setState(
-                        () =>
-                            _displaySettings = _displaySettings.copyWith(
-                              enabled: value,
+                    SizedBox(
+                      width: 280,
+                      child: DropdownButtonFormField<_NoticeFontFamilyOption>(
+                        value: _displaySettings.fontFamily,
+                        decoration: _inputDecoration('폰트를 선택해 주세요'),
+                        items: _NoticeFontFamilyOption.values
+                            .map(
+                              (font) =>
+                                  DropdownMenuItem<_NoticeFontFamilyOption>(
+                                    value: font,
+                                    child: Text(font.label),
+                                  ),
+                            )
+                            .toList(growable: false),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(
+                            () =>
+                                _displaySettings = _displaySettings.copyWith(
+                                  fontFamily: value,
+                                ),
+                          );
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 280,
+                      child: _StepperField(
+                        label: '항목 노출 시간(초)',
+                        value: _displaySettings.itemDurationSec,
+                        min: 3,
+                        max: 60,
+                        onChanged:
+                            (value) => setState(
+                              () =>
+                                  _displaySettings = _displaySettings.copyWith(
+                                    itemDurationSec: value,
+                                  ),
                             ),
                       ),
+                    ),
+                    SizedBox(
+                      width: 280,
+                      child: _NoticeColorField(
+                        label: '${_displaySettings.mode.label} 배경색',
+                        value: _displaySettings.backgroundColorHex,
+                        onChanged:
+                            (value) => setState(
+                              () =>
+                                  _displaySettings = _displaySettings.copyWith(
+                                    backgroundColorHex: value,
+                                  ),
+                            ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 280,
+                      child: _NoticeColorField(
+                        label: '${_displaySettings.mode.label} 글자색',
+                        value: _displaySettings.textColorHex,
+                        onChanged:
+                            (value) => setState(
+                              () =>
+                                  _displaySettings = _displaySettings.copyWith(
+                                    textColorHex: value,
+                                  ),
+                            ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 280,
+                      child: SwitchListTile.adaptive(
+                        value: _displaySettings.enabled,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('공지 오버레이 사용'),
+                        onChanged:
+                            (value) => setState(
+                              () =>
+                                  _displaySettings = _displaySettings.copyWith(
+                                    enabled: value,
+                                  ),
+                            ),
+                      ),
+                    ),
+                    if (_displaySettings.mode == _NoticeDisplayMode.ticker)
+                      SizedBox(
+                        width: 280,
+                        child: DropdownButtonFormField<_NoticeTickerDirection>(
+                          value: _displaySettings.tickerDirection,
+                          decoration: _inputDecoration('티커 방향을 선택해 주세요'),
+                          items: _NoticeTickerDirection.values
+                              .map(
+                                (direction) =>
+                                    DropdownMenuItem<_NoticeTickerDirection>(
+                                      value: direction,
+                                      child: Text(direction.label),
+                                    ),
+                              )
+                              .toList(growable: false),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(
+                              () =>
+                                  _displaySettings = _displaySettings.copyWith(
+                                    tickerDirection: value,
+                                  ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
                 ),
                 if (_displaySettings.mode == _NoticeDisplayMode.ticker) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Text('하단 티커 높이', style: theme.textTheme.labelLarge),
                   Slider(
                     value: _displaySettings.tickerHeight.toDouble(),
@@ -1191,10 +1361,10 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
                               ),
                         ),
                   ),
-                ],
-                if (_displaySettings.mode == _NoticeDisplayMode.sidePanel) ...[
-                  const SizedBox(height: 8),
-                  Text('사이드 패널 너비', style: theme.textTheme.labelLarge),
+                ] else if (_displaySettings.mode ==
+                    _NoticeDisplayMode.sidePanel) ...[
+                  const SizedBox(height: 12),
+                  Text('우측 패널 너비', style: theme.textTheme.labelLarge),
                   Slider(
                     value: _displaySettings.sidePanelWidth.toDouble(),
                     min: 240,
@@ -1209,6 +1379,49 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
                         ),
                   ),
                 ],
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FDFF),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFB6E6F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '적용 전 미리보기',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: const Color(0xFF0F4C5C),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '입력한 공지 내용, 글자 크기, 색상과 모드별 높이/너비를 바로 확인할 수 있습니다.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF4B5563),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text('글자 ${previewFontSize}px'),
+                          Text(_noticeModeSummary(_displaySettings)),
+                          Text(_displaySettings.fontFamily.label),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 10),
                 _NoticePreviewBox(
                   settings: _displaySettings,
@@ -1224,7 +1437,8 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF0EA5B7),
                         ),
-                        onPressed: _isApplyingNotice ? null : _applyPreviewNotice,
+                        onPressed:
+                            _isApplyingNotice ? null : _applyPreviewNotice,
                         child: Text(_isApplyingNotice ? '적용 중...' : '공지 적용'),
                       ),
                     ),
@@ -1457,10 +1671,8 @@ class _NoticeManageTabState extends State<NoticeManageTab> {
                 onSelect: () => _selectPreviewNotice(notice),
                 onRegister: () => _registerNotice(notice),
                 onFavoriteToggle: () => _toggleFavorite(notice),
-                onActiveToggle: () => _toggleActive(notice),
                 onEdit: () => _toggleEditor(notice),
                 onDelete: () => _deleteNotice(notice),
-                onSend: () => _markAsSent(notice),
               ),
             ),
           ),
@@ -1476,10 +1688,8 @@ class _NoticeCard extends StatelessWidget {
     required this.onSelect,
     required this.onRegister,
     required this.onFavoriteToggle,
-    required this.onActiveToggle,
     required this.onEdit,
     required this.onDelete,
-    required this.onSend,
   });
 
   final _ManagedNotice notice;
@@ -1487,10 +1697,8 @@ class _NoticeCard extends StatelessWidget {
   final VoidCallback onSelect;
   final VoidCallback onRegister;
   final VoidCallback onFavoriteToggle;
-  final VoidCallback onActiveToggle;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  final VoidCallback onSend;
 
   String _formatDate(DateTime? value) => _formatShortDate(value);
 
@@ -1533,11 +1741,6 @@ class _NoticeCard extends StatelessWidget {
                         background: const Color(0xFFE0F2FE),
                       ),
                       _Pill(
-                        label: notice.category,
-                        foreground: const Color(0xFF0F766E),
-                        background: const Color(0xFFCCFBF1),
-                      ),
-                      _Pill(
                         label: notice.active ? '활성' : '비활성',
                         foreground:
                             notice.active
@@ -1570,14 +1773,6 @@ class _NoticeCard extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              notice.content,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: const Color(0xFF334155),
-                height: 1.5,
-              ),
-            ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 12,
@@ -1585,12 +1780,9 @@ class _NoticeCard extends StatelessWidget {
               children: [
                 _MetaText(label: '글자 크기', value: '${notice.fontSize}px'),
                 _MetaText(
-                  label: '표시 기간',
-                  value:
-                      '${_formatDate(notice.startAt)} ~ ${_formatDate(notice.endAt)}',
+                  label: '최근 사용',
+                  value: _formatDate(notice.lastUsedAt),
                 ),
-                _MetaText(label: '최근 사용', value: _formatDate(notice.lastUsedAt)),
-                _MetaText(label: '사용 횟수', value: '${notice.usageCount}회'),
               ],
             ),
             const SizedBox(height: 14),
@@ -1607,20 +1799,6 @@ class _NoticeCard extends StatelessWidget {
                   child: FilledButton.tonal(
                     onPressed: onEdit,
                     child: const Text('수정'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: onActiveToggle,
-                    child: Text(notice.active ? '비활성화' : '활성화'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: onSend,
-                    child: const Text('긴급 전송'),
                   ),
                 ),
               ],
@@ -1789,6 +1967,10 @@ class _NoticePreviewBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final backgroundColor = _hexToColor(settings.backgroundColorHex);
+    final textColor = _hexToColor(settings.textColorHex);
+    final fontFamily = settings.fontFamily.flutterFontFamily;
+
     return Container(
       height: 190,
       decoration: BoxDecoration(
@@ -1824,36 +2006,19 @@ class _NoticePreviewBox extends StatelessWidget {
                   horizontal: 16,
                   vertical: 12,
                 ),
-                decoration: const BoxDecoration(
-                  color: Color(0xDD020617),
+                decoration: BoxDecoration(
+                  color: backgroundColor.withValues(alpha: 0.94),
                   borderRadius: BorderRadius.vertical(
                     bottom: Radius.circular(20),
                   ),
                 ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text.rich(
-                    TextSpan(
-                      text: '공지 ',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: fontSize.clamp(16, 28).toDouble(),
-                      ),
-                      children: [
-                        TextSpan(
-                          text: '$previewTitle: ',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        TextSpan(
-                          text: previewContent,
-                          style: const TextStyle(fontWeight: FontWeight.w400),
-                        ),
-                      ],
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                child: _NoticePreviewTicker(
+                  text: '공지 $previewTitle: $previewContent',
+                  direction: settings.tickerDirection,
+                  fontSize: fontSize,
+                  textColor: textColor,
+                  backgroundColor: backgroundColor,
+                  fontFamily: fontFamily,
                 ),
               ),
             ),
@@ -1863,10 +2028,10 @@ class _NoticePreviewBox extends StatelessWidget {
               right: 0,
               bottom: 0,
               child: Container(
-                width: settings.sidePanelWidth.toDouble().clamp(240, 320),
+                width: settings.sidePanelWidth.toDouble().clamp(240, 720),
                 padding: const EdgeInsets.all(16),
-                decoration: const BoxDecoration(
-                  color: Color(0xD90F172A),
+                decoration: BoxDecoration(
+                  color: backgroundColor.withValues(alpha: 0.92),
                   borderRadius: BorderRadius.horizontal(
                     right: Radius.circular(20),
                   ),
@@ -1885,9 +2050,10 @@ class _NoticePreviewBox extends StatelessWidget {
                     const SizedBox(height: 10),
                     Text(
                       previewTitle,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: textColor,
                         fontWeight: FontWeight.w700,
+                        fontFamily: fontFamily,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1896,9 +2062,10 @@ class _NoticePreviewBox extends StatelessWidget {
                       maxLines: 4,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: const Color(0xFFE5E7EB),
+                        color: textColor,
                         height: 1.5,
                         fontSize: fontSize.clamp(16, 24).toDouble(),
+                        fontFamily: fontFamily,
                       ),
                     ),
                   ],
@@ -1911,7 +2078,7 @@ class _NoticePreviewBox extends StatelessWidget {
                 width: 240,
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: const Color(0xF8111827),
+                  color: backgroundColor,
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: const Color(0xFF2DD4BF)),
                 ),
@@ -1929,9 +2096,10 @@ class _NoticePreviewBox extends StatelessWidget {
                     Text(
                       previewTitle,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: textColor,
                         fontWeight: FontWeight.w700,
+                        fontFamily: fontFamily,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1941,9 +2109,10 @@ class _NoticePreviewBox extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white,
+                        color: textColor,
                         height: 1.5,
                         fontSize: fontSize.clamp(16, 24).toDouble(),
+                        fontFamily: fontFamily,
                       ),
                     ),
                   ],
@@ -2005,6 +2174,152 @@ class _MetaText extends StatelessWidget {
   }
 }
 
+class _NoticeColorField extends StatelessWidget {
+  const _NoticeColorField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: _noticeColorOptions
+              .map((option) {
+                final isSelected = option == value;
+                final optionColor = _hexToColor(option);
+                return GestureDetector(
+                  onTap: () => onChanged(option),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: optionColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color:
+                            isSelected
+                                ? const Color(0xFF0EA5B7)
+                                : const Color(0xFFD5DFE7),
+                        width: isSelected ? 3 : 1.5,
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x120F172A),
+                          blurRadius: 10,
+                          offset: Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child:
+                        isSelected
+                            ? Icon(
+                              Icons.check_rounded,
+                              size: 18,
+                              color:
+                                  optionColor.computeLuminance() > 0.5
+                                      ? const Color(0xFF0F172A)
+                                      : Colors.white,
+                            )
+                            : null,
+                  ),
+                );
+              })
+              .toList(growable: false),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF64748B),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NoticePreviewTicker extends StatelessWidget {
+  const _NoticePreviewTicker({
+    required this.text,
+    required this.direction,
+    required this.fontSize,
+    required this.textColor,
+    required this.backgroundColor,
+    required this.fontFamily,
+  });
+
+  final String text;
+  final _NoticeTickerDirection direction;
+  final int fontSize;
+  final Color textColor;
+  final Color backgroundColor;
+  final String? fontFamily;
+
+  @override
+  Widget build(BuildContext context) {
+    final textWidget = Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: textColor,
+        fontSize: fontSize.clamp(16, 28).toDouble(),
+        fontFamily: fontFamily,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+
+    if (direction == _NoticeTickerDirection.staticText) {
+      return Container(
+        width: double.infinity,
+        color: backgroundColor,
+        alignment: Alignment.centerLeft,
+        child: textWidget,
+      );
+    }
+
+    final alignment =
+        direction == _NoticeTickerDirection.rtl
+            ? Alignment.centerRight
+            : Alignment.centerLeft;
+    final icon =
+        direction == _NoticeTickerDirection.rtl
+            ? Icons.west_rounded
+            : Icons.east_rounded;
+
+    return Container(
+      width: double.infinity,
+      color: backgroundColor,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: textColor.withValues(alpha: 0.82)),
+          const SizedBox(width: 8),
+          Expanded(child: Align(alignment: alignment, child: textWidget)),
+        ],
+      ),
+    );
+  }
+}
+
 class _DeviceOption {
   const _DeviceOption({required this.id, required this.label});
 
@@ -2014,7 +2329,7 @@ class _DeviceOption {
 
 enum _NoticeDisplayMode {
   ticker('하단 티커'),
-  sidePanel('사이드 패널'),
+  sidePanel('우측 패널'),
   popupCycle('팝업 순환');
 
   const _NoticeDisplayMode(this.label);
@@ -2022,10 +2337,38 @@ enum _NoticeDisplayMode {
   final String label;
 }
 
+enum _NoticeTickerDirection {
+  staticText('고정'),
+  rtl('오른쪽에서 왼쪽'),
+  ltr('왼쪽에서 오른쪽');
+
+  const _NoticeTickerDirection(this.label);
+
+  final String label;
+}
+
+enum _NoticeFontFamilyOption {
+  arial('Arial', null),
+  trebuchet('Trebuchet MS', null),
+  segoe('Segoe UI', null),
+  times('Times New Roman', 'serif'),
+  georgia('Georgia', 'serif'),
+  courier('Courier New', 'monospace');
+
+  const _NoticeFontFamilyOption(this.label, this.flutterFontFamily);
+
+  final String label;
+  final String? flutterFontFamily;
+}
+
 class _NoticeDisplaySettings {
   const _NoticeDisplaySettings({
     this.enabled = true,
     this.mode = _NoticeDisplayMode.ticker,
+    this.tickerDirection = _NoticeTickerDirection.rtl,
+    this.backgroundColorHex = '#000000',
+    this.textColorHex = '#FFFFFF',
+    this.fontFamily = _NoticeFontFamilyOption.arial,
     this.itemDurationSec = 8,
     this.maxItems = 3,
     this.tickerHeight = 88,
@@ -2034,14 +2377,37 @@ class _NoticeDisplaySettings {
 
   final bool enabled;
   final _NoticeDisplayMode mode;
+  final _NoticeTickerDirection tickerDirection;
+  final String backgroundColorHex;
+  final String textColorHex;
+  final _NoticeFontFamilyOption fontFamily;
   final int itemDurationSec;
   final int maxItems;
   final int tickerHeight;
   final int sidePanelWidth;
 
+  Map<String, dynamic> toApiJson() {
+    return {
+      'notice_enabled': enabled ? 1 : 0,
+      'notice_default_mode': _noticeModeApiValue(mode),
+      'notice_ticker_direction': _tickerDirectionApiValue(tickerDirection),
+      'notice_background_color': backgroundColorHex,
+      'notice_text_color': textColorHex,
+      'notice_font_family': _fontFamilyApiValue(fontFamily),
+      'notice_item_duration_sec': itemDurationSec,
+      'notice_max_items': maxItems,
+      'notice_ticker_height_px': tickerHeight,
+      'notice_side_panel_width_px': sidePanelWidth,
+    };
+  }
+
   _NoticeDisplaySettings copyWith({
     bool? enabled,
     _NoticeDisplayMode? mode,
+    _NoticeTickerDirection? tickerDirection,
+    String? backgroundColorHex,
+    String? textColorHex,
+    _NoticeFontFamilyOption? fontFamily,
     int? itemDurationSec,
     int? maxItems,
     int? tickerHeight,
@@ -2050,6 +2416,10 @@ class _NoticeDisplaySettings {
     return _NoticeDisplaySettings(
       enabled: enabled ?? this.enabled,
       mode: mode ?? this.mode,
+      tickerDirection: tickerDirection ?? this.tickerDirection,
+      backgroundColorHex: backgroundColorHex ?? this.backgroundColorHex,
+      textColorHex: textColorHex ?? this.textColorHex,
+      fontFamily: fontFamily ?? this.fontFamily,
       itemDurationSec: itemDurationSec ?? this.itemDurationSec,
       maxItems: maxItems ?? this.maxItems,
       tickerHeight: tickerHeight ?? this.tickerHeight,

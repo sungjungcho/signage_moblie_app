@@ -361,6 +361,55 @@ class LiveMessageApiService {
     return LiveNotice.fromJson(payload);
   }
 
+  Future<void> updateDisplaySettings({
+    required String authToken,
+    required String deviceId,
+    required Map<String, dynamic> settings,
+  }) async {
+    final response = await _httpClient.put(
+      _buildUri('/api/devices/$deviceId/display-settings'),
+      headers: {
+        'Content-Type': 'application/json',
+        ..._cookieHeaders(authToken),
+      },
+      body: jsonEncode(settings),
+    );
+
+    final payload = _decodeJson(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final message =
+          payload is Map<String, dynamic>
+              ? _extractErrorMessage(
+                payload,
+                fallback: '디스플레이 공지 설정 저장에 실패했습니다.',
+              )
+              : '디스플레이 공지 설정 저장에 실패했습니다.';
+      throw ApiException(message);
+    }
+  }
+
+  Future<void> applyDisplaySettings({
+    required String authToken,
+    required String deviceId,
+  }) async {
+    final response = await _httpClient.post(
+      _buildUri('/api/devices/$deviceId/apply-display-settings'),
+      headers: _cookieHeaders(authToken),
+    );
+
+    final payload = _decodeJson(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final message =
+          payload is Map<String, dynamic>
+              ? _extractErrorMessage(
+                payload,
+                fallback: '디스플레이 공지 설정 적용에 실패했습니다.',
+              )
+              : '디스플레이 공지 설정 적용에 실패했습니다.';
+      throw ApiException(message);
+    }
+  }
+
   Map<String, String> _cookieHeaders(String authToken) {
     return {'Cookie': 'auth_token=$authToken'};
   }

@@ -3,14 +3,13 @@ import 'package:flutter/material.dart';
 import 'app_dependencies.dart';
 import 'app_environment.dart';
 import 'app_scope.dart';
+import 'models/user_session.dart';
+import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'services/session_storage_service.dart';
 
 class SignageMobileApp extends StatelessWidget {
-  const SignageMobileApp({
-    super.key,
-    this.environment,
-    this.dependencies,
-  });
+  const SignageMobileApp({super.key, this.environment, this.dependencies});
 
   final AppEnvironment? environment;
   final AppDependencies? dependencies;
@@ -40,9 +39,9 @@ class SignageMobileApp extends StatelessWidget {
           ),
           scaffoldBackgroundColor: const Color(0xFFF5FBFA),
           textTheme: ThemeData.light().textTheme.apply(
-                bodyColor: navy,
-                displayColor: navy,
-              ),
+            bodyColor: navy,
+            displayColor: navy,
+          ),
           appBarTheme: const AppBarTheme(
             backgroundColor: navy,
             foregroundColor: Colors.white,
@@ -84,8 +83,46 @@ class SignageMobileApp extends StatelessWidget {
             contentTextStyle: const TextStyle(color: Colors.white),
           ),
         ),
-        home: const LoginScreen(),
+        home: const _LaunchScreen(),
       ),
+    );
+  }
+}
+
+class _LaunchScreen extends StatefulWidget {
+  const _LaunchScreen();
+
+  @override
+  State<_LaunchScreen> createState() => _LaunchScreenState();
+}
+
+class _LaunchScreenState extends State<_LaunchScreen> {
+  late final Future<UserSession?> _sessionFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _sessionFuture = SessionStorageService.loadSession();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<UserSession?>(
+      future: _sessionFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final session = snapshot.data;
+        if (session != null && session.keepSignedIn) {
+          return HomeScreen(session: session);
+        }
+
+        return const LoginScreen();
+      },
     );
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../app_scope.dart';
 import '../models/signage_item.dart';
 import '../models/user_session.dart';
+import '../services/session_storage_service.dart';
 import 'detail_screen.dart';
 import 'login_screen.dart';
 import 'message_compose_tab.dart';
@@ -45,7 +46,12 @@ class _HomeScreenState extends State<HomeScreen> {
     await future;
   }
 
-  void _logout() {
+  Future<void> _logout() async {
+    await SessionStorageService.clearSession();
+    if (!mounted) {
+      return;
+    }
+
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
       (route) => false,
@@ -84,13 +90,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: theme.textTheme.titleLarge?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${widget.session.displayName}님, 메세지와 공지사항을 확인하세요.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.82),
                 ),
               ),
             ],
